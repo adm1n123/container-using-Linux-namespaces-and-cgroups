@@ -3,13 +3,22 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sched.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/mount.h>
 #include <sys/wait.h>
 
+// create difference cgroup for separate container when running two containers.
+#define CGROUP_PIDS_DIR "/sys/fs/cgroup/pids/container/"
+#define CGROUP_MEMORY_DIR "/sys/fs/cgroup/memory/container/"
+#define CGROUP_CPU_DIR "/sys/fs/cgroup/cpu/container/"
+
 const char *rootfs;
 const char *hostname;
+const int MAX_PID = 10;	// maximum number of processes in container.
+const int MEM_LIMIT = 65536;
 
 void init_env_variables() {
   clearenv();	// clear environment variables for process it takes env from parent.
@@ -27,8 +36,76 @@ void setup_rootfs() {
 	return;
 }
 
+void set_hostname() {
+	sethostname(hostname, strlen(hostname));
+	return;
+}
+
+void write_on_file(char *path, char *data) {
+	int fd = open(path, O_WRONLY|O_APPEND);
+	if(fd < 0) {
+		printf("Error opening file: %s\n", path);
+		exit(1);
+	}
+	write(fd, data, strlen(data));
+	close(fd);
+	return;
+}
+
+void create_pids_cgroup() {
+	mkdir(CGROUP_PIDS_DIR, S_IRWXU | S_IRWXO);
+	char pid[50];
+	sprintf(pid, "%d", getpid());
+
+	char procs_path[100] = CGROUP_PIDS_DIR;
+	strcat(procs_path, "cgroup.procs");
+	write_on_file(procs_path, pid);	
+	return;
+}
+
+void limit_pids(int max) {
+	
+	char max_pid[50];
+	sprintf(max_pid, "%d", max);
+
+	char pid_max_path[100] = CGROUP_PIDS_DIR;
+	strcat(pid_max_path, "pids.max");
+	write_on_file(pid_max_path, max_pid);
+	return;
+}
+
+void notify_on_release(char *path) {	// after process ended kernel will clean up for space.
+	char noti_path[100];
+	sprintf(noti_path, "%s", path);
+	strcat(noti_path, "notify_on_release");
+	write_on_file(noti_path, "1");
+	return;
+}
+
+void create_memory_cgroup() {
+	mkdir(CGROUP_MEMORY_DIR, S_IRWXU | S_IRWXO);
+	char pid[50];
+	sprintf(pid, "%d", getpid());
+
+	char tasks_path[100] = CGROUP_MEMORY_DIR;
+	strcat(tasks_path, "tasks");
+	write_on_file(tasks_path, pid);	
+	return;
+}
+
+void limit_memory(int bytes) {
+	
+	char mem_bytes[50];
+	sprintf(mem_bytes, "%d", bytes);
+
+	char memory_limit_path[100] = CGROUP_MEMORY_DIR;
+	strcat(memory_limit_path, "memory.limit_in_bytes");
+	write_on_file(memory_limit_path, mem_bytes);
+	return;
+}
+
 char *stack_memory() {
-	const int STACK_SIZE = 65536;	// 64KB
+	const int STACK_SIZE = 1<<20;	// 64KB
 	char *stack = malloc(STACK_SIZE);
 	if(stack == NULL) {
 		perror("stack memory allocation failed");
@@ -56,11 +133,21 @@ int run(char *path) {
 }
 
 int init(void *args) {
-	printf("From init\n");
-	printf("Child pid: %d\n", getpid());
+	printf("From init Child pid: %d\n", getpid());
+
+	// create cgroup for this init process in host rootfs not container rootfs.
+	create_pids_cgroup();
+	limit_pids(MAX_PID);
+	notify_on_release(CGROUP_PIDS_DIR);
+
+
+	create_memory_cgroup();
+	limit_memory(MEM_LIMIT);
+	notify_on_release(CGROUP_MEMORY_DIR);
 
 	init_env_variables();
 	setup_rootfs();
+	set_hostname();
 
 	mount("proc", "/proc", "proc", 0, 0);	// mounting proc file system.
 
