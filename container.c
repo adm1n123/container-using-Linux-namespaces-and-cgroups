@@ -11,37 +11,66 @@
 #include <sys/wait.h>
 
 // create difference cgroup for separate container when running two containers.
-#define CGROUP_PIDS_DIR "/sys/fs/cgroup/pids/container/"
-#define CGROUP_MEMORY_DIR "/sys/fs/cgroup/memory/container/"
-#define CGROUP_CPU_DIR "/sys/fs/cgroup/cpu/container/"
+#define DIR_CGROUP_PIDS "/sys/fs/cgroup/pids/container/"
+#define DIR_CGROUP_MEMORY "/sys/fs/cgroup/memory/container/"
+#define DIR_CGROUP_CPU "/sys/fs/cgroup/cpu/container/"
+
+#define PATH_SHELL "/bin/sh"
+#define PATH_BASH "/bin/bash"
+
+#define STR_CGROUP_PROCS "cgroup.procs"
+#define STR_PIDS_MAX "pids.max"
+#define STR_MEMORY_TASKS "tasks"
+#define STR_MEMORY_LIMIT "memory.limit_in_bytes"
+#define STR_SWAPPINESS "memory.swappiness"
+#define STR_NOTI_ON_REL "notify_on_release"
 
 const char *rootfs;
 const char *hostname;
 const int MAX_PID = 10;	// maximum number of processes in container.
-const int MEM_LIMIT = 512 << 20; // 512MB
+const int PATH_LENGTH = 100;
+const long long int MEM_LIMIT = (long long int)10 << 20; // 128MB
+const long long int STACK_SIZE = (long long int)1 << 20; // 1MB
 
-void init_env_variables() {
+void initEnvVariables() {
   clearenv();	// clear environment variables for process it takes env from parent.
   setenv("TERM", "xterm-256color", 0);		// what type of screen we have
   setenv("PATH", "/bin/:/sbin/:usr/bin:/usr/sbin", 0);
   return;
 }
 
-void setup_rootfs() {
-	char rootfs_path[50] = "./";
-	strcat(rootfs_path, rootfs);
+char *concat(char *a, char *b) {
+	char *p = malloc(PATH_LENGTH);
+	strcpy(p, a);
+	strcat(p, b);
+	return p;
+}
 
+char *intToString(int n) {
+	char *p = malloc(25);
+	sprintf(p, "%d", n);
+	return p;
+}
+
+char *longToString(long long int n) {
+	char *p = malloc(25);
+	sprintf(p, "%lld", n);
+	return p;
+}
+
+void setupRootfs() {
+	char *rootfs_path = concat("./", (char *)rootfs);
 	chroot(rootfs_path);
 	chdir("/");
 	return;
 }
 
-void set_hostname() {
+void setHostname() {
 	sethostname(hostname, strlen(hostname));
 	return;
 }
 
-int write_on_file(char *path, char *data) {
+int writeOnFile(char *path, char *data) {
 	int fd = open(path, O_WRONLY|O_APPEND);
 	if(fd < 0) {
 		printf("Error opening file: %s\n", path);
@@ -52,66 +81,60 @@ int write_on_file(char *path, char *data) {
 	return flag;
 }
 
-void create_pids_cgroup() {
-	mkdir(CGROUP_PIDS_DIR, S_IRWXU | S_IRWXO);
-	char pid[50];
-	sprintf(pid, "%d", getpid());
+void createJoinPidsCgroup() {
+	mkdir(DIR_CGROUP_PIDS, S_IRWXU | S_IRWXO);
+	char *pid = intToString(getpid());
 
-	char procs_path[100] = CGROUP_PIDS_DIR;
-	strcat(procs_path, "cgroup.procs");
-	write_on_file(procs_path, pid);	
+	char *path = concat(DIR_CGROUP_PIDS, STR_CGROUP_PROCS);
+	writeOnFile(path, pid);
 	return;
 }
 
-void limit_pids(int max) {
+void limitPids(int max) {
 	
-	char max_pid[50];
-	sprintf(max_pid, "%d", max);
-
-	char pid_max_path[100] = CGROUP_PIDS_DIR;
-	strcat(pid_max_path, "pids.max");
-	write_on_file(pid_max_path, max_pid);
+	char *max_pid = intToString(max);
+	char *path = concat(DIR_CGROUP_PIDS, STR_PIDS_MAX);
+	writeOnFile(path, max_pid);
 	return;
 }
 
-void notify_on_release(char *path) {	// after process ended kernel will clean up for space.
-	char noti_path[100];
-	sprintf(noti_path, "%s", path);
-	strcat(noti_path, "notify_on_release");
-	write_on_file(noti_path, "1");
+void notifyOnRelease(char *dir_cgroup) {	// after process ended kernel will clean up for space.
+	char *path = concat(dir_cgroup, STR_NOTI_ON_REL);
+	writeOnFile(path, "1");
 	return;
 }
 
-void create_memory_cgroup() {
-	mkdir(CGROUP_MEMORY_DIR, S_IRWXU | S_IRWXO);
-	char pid[50];
-	sprintf(pid, "%d", getpid());
+void createJoinMemoryCgroup() {
+	mkdir(DIR_CGROUP_MEMORY, S_IRWXU | S_IRWXO);
+	char *pid = intToString(getpid());
+	char *path = concat(DIR_CGROUP_MEMORY, STR_MEMORY_TASKS);
 
-	char tasks_path[100] = CGROUP_MEMORY_DIR;
-	strcat(tasks_path, "tasks");
-	int flag = write_on_file(tasks_path, pid);
+	int flag = writeOnFile(path, pid);
 	if(flag < strlen(pid)) {
-		printf("create_memory_cgroup write failed flag: %d, and data length: %ld\n", flag, strlen(pid));
+		printf("createMemoryCgroup write failed flag: %d, and data length: %ld\n", flag, strlen(pid));
 	}
 	return;
 }
 
-void limit_memory(int bytes) {
+void limitMemory(long long int bytes) {
 	
-	char mem_bytes[50];
-	sprintf(mem_bytes, "%d", bytes);
-
-	char memory_limit_path[100] = CGROUP_MEMORY_DIR;
-	strcat(memory_limit_path, "memory.limit_in_bytes");
-	int flag = write_on_file(memory_limit_path, mem_bytes);
+	char *mem_bytes = longToString(bytes);
+	char *path = concat(DIR_CGROUP_MEMORY, STR_MEMORY_LIMIT);
+	
+	int flag = writeOnFile(path, mem_bytes);
 	if(flag < strlen(mem_bytes)) {
-		printf("limit_memory write failed flag: %d, and data length: %ld\n", flag, strlen(mem_bytes));
+		printf("limitMemory write failed flag: %d, and data length: %ld\n", flag, strlen(mem_bytes));
 	}
 	return;
 }
 
-char *stack_memory() {
-	const int STACK_SIZE = 1<<20;	// 64KB
+void disableSwapping() {
+	char *path = concat(DIR_CGROUP_MEMORY, STR_SWAPPINESS);
+	int flag = writeOnFile(path, "0");	// default is 60 it is tendency of kernel to swap lower value decreases the tendency 0 means very low but kernel might swap.
+	return;
+}
+
+char *stackMemory() {
 	char *stack = malloc(STACK_SIZE);
 	if(stack == NULL) {
 		perror("stack memory allocation failed");
@@ -121,16 +144,14 @@ char *stack_memory() {
 	// how to control stackoverflow in this case?
 }
 
-int run_shell() {
-	char *path = "/bin/sh";
-	char *args[] = {path, NULL}; // {} is used to create array
-	return execvp(path, args);
+int runShell() {
+	char *args[] = {PATH_SHELL, NULL}; // {} is used to create array
+	return execvp(PATH_SHELL, args);
 }
 
-int run_bash() {
-	char *path = "/bin/bash";
-	char *args[] = {path, NULL}; // {} is used to create array
-	return execvp(path, args);	// change to bash it will replace parent bash you need to do exit two times to exit from child bash and your initial bash.
+int runBash() {
+	char *args[] = {PATH_BASH, NULL}; // {} is used to create array
+	return execvp(PATH_BASH, args);	// change to bash it will replace parent bash you need to do exit two times to exit from child bash and your initial bash.
 }
 
 int run(char *path) {
@@ -138,16 +159,21 @@ int run(char *path) {
 	return execvp(path, args);
 }
 
-void limit_resources() {
+void limitResources() {
 	// limiting number of processes.
-	create_pids_cgroup();
-	limit_pids(MAX_PID);
-	notify_on_release(CGROUP_PIDS_DIR);
+
+	createJoinPidsCgroup();
+	limitPids(MAX_PID);
+	notifyOnRelease(DIR_CGROUP_PIDS);
+	printf("Process Limit: %d\n", MAX_PID);
 
 	// limiting memory usages.
-	create_memory_cgroup();
-	limit_memory(MEM_LIMIT);
-	notify_on_release(CGROUP_MEMORY_DIR);
+	createJoinMemoryCgroup();
+	limitMemory(MEM_LIMIT);
+	notifyOnRelease(DIR_CGROUP_MEMORY);
+	disableSwapping();
+	printf("Memory Limit: %lld MB\n", MEM_LIMIT/(1<<20));
+
 	return;
 }
 
@@ -156,16 +182,16 @@ int init(void *args) {
 
 	// create cgroup for this init process in host rootfs not container rootfs.
 
-	limit_resources();
+	limitResources();
 
 
-	init_env_variables();
-	setup_rootfs();
-	set_hostname();
+	initEnvVariables();
+	setupRootfs();
+	setHostname();
 
 	mount("proc", "/proc", "proc", 0, 0);	// mounting proc file system.
 
-	clone(run_shell, stack_memory(), SIGCHLD, NULL);
+	clone(runShell, stackMemory(), SIGCHLD, NULL);
 	int status;
 	wait(&status);
 	
@@ -185,7 +211,7 @@ void main(int argc, char const *argv[]) {	// since clone is done then name of th
 
 	printf("Hello Container parent pid: %d\n", getpid());
 	
-	clone(init, stack_memory(), CLONE_NEWPID|CLONE_NEWUTS|SIGCHLD, NULL); // SIGCHLD this flag tells the process to emit a signal when finished. NULL is args to init.
+	clone(init, stackMemory(), CLONE_NEWPID|CLONE_NEWUTS|SIGCHLD, NULL); // SIGCHLD this flag tells the process to emit a signal when finished. NULL is args to init.
 	
 	int status;
 	wait(&status);	// parent need to wait otherwise child process will be adopted.
