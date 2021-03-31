@@ -18,7 +18,7 @@
 const char *rootfs;
 const char *hostname;
 const int MAX_PID = 10;	// maximum number of processes in container.
-const int MEM_LIMIT = 65536;
+const int MEM_LIMIT = 512 << 20; // 512MB
 
 void init_env_variables() {
   clearenv();	// clear environment variables for process it takes env from parent.
@@ -41,15 +41,15 @@ void set_hostname() {
 	return;
 }
 
-void write_on_file(char *path, char *data) {
+int write_on_file(char *path, char *data) {
 	int fd = open(path, O_WRONLY|O_APPEND);
 	if(fd < 0) {
 		printf("Error opening file: %s\n", path);
 		exit(1);
 	}
-	write(fd, data, strlen(data));
+	int flag = write(fd, data, strlen(data));
 	close(fd);
-	return;
+	return flag;
 }
 
 void create_pids_cgroup() {
@@ -89,7 +89,10 @@ void create_memory_cgroup() {
 
 	char tasks_path[100] = CGROUP_MEMORY_DIR;
 	strcat(tasks_path, "tasks");
-	write_on_file(tasks_path, pid);	
+	int flag = write_on_file(tasks_path, pid);
+	if(flag < strlen(pid)) {
+		printf("create_memory_cgroup write failed flag: %d, and data length: %ld\n", flag, strlen(pid));
+	}
 	return;
 }
 
@@ -100,7 +103,10 @@ void limit_memory(int bytes) {
 
 	char memory_limit_path[100] = CGROUP_MEMORY_DIR;
 	strcat(memory_limit_path, "memory.limit_in_bytes");
-	write_on_file(memory_limit_path, mem_bytes);
+	int flag = write_on_file(memory_limit_path, mem_bytes);
+	if(flag < strlen(mem_bytes)) {
+		printf("limit_memory write failed flag: %d, and data length: %ld\n", flag, strlen(mem_bytes));
+	}
 	return;
 }
 
@@ -132,18 +138,26 @@ int run(char *path) {
 	return execvp(path, args);
 }
 
-int init(void *args) {
-	printf("From init Child pid: %d\n", getpid());
-
-	// create cgroup for this init process in host rootfs not container rootfs.
+void limit_resources() {
+	// limiting number of processes.
 	create_pids_cgroup();
 	limit_pids(MAX_PID);
 	notify_on_release(CGROUP_PIDS_DIR);
 
-
+	// limiting memory usages.
 	create_memory_cgroup();
 	limit_memory(MEM_LIMIT);
 	notify_on_release(CGROUP_MEMORY_DIR);
+	return;
+}
+
+int init(void *args) {
+	printf("From init Child pid: %d\n", getpid());
+
+	// create cgroup for this init process in host rootfs not container rootfs.
+
+	limit_resources();
+
 
 	init_env_variables();
 	setup_rootfs();
