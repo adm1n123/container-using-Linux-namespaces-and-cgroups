@@ -28,6 +28,7 @@
 #define STR_NOTI_ON_REL "notify_on_release"
 
 const char *CONTNR_ID;	// container id
+const char *NETNS;		// network namespace
 const char *ROOTFS;
 const char *HOSTNAME;
 const int MAX_PID = 10;	// maximum number of processes in container.
@@ -36,32 +37,6 @@ const long long int MEM_LIMIT = (long long int)10 << 20; // 128MB
 const long long int STACK_SIZE = (long long int)1 << 20; // 1MB
 
 char *concat(int argc, ...);
-
-struct veth_pair {
-	char *contnr;	// container end of vethernet
-	char *br;		// bridge end of vethernet
-};
-
-struct ntw_config {
-	char *netns;	// netword namespace name.
-	struct veth_pair *veth;
-	char *ip;		// ip address
-	char *bridge;	// bridge name
-} *ntw_config;
-
-
-void networkConfig() {
-	ntw_config = malloc(sizeof(struct ntw_config));
-	ntw_config->veth = malloc(sizeof(struct veth_pair));
-
-	ntw_config->netns = concat(2, "netns-", CONTNR_ID);
-	ntw_config->veth->contnr = concat(2, "veth-", CONTNR_ID);
-	ntw_config->veth->br = concat(3, "veth-", CONTNR_ID, "-br");
-	ntw_config->ip = "";
-	ntw_config->bridge = "v-net-contnr";
-
-	return;
-}
 
 
 void initEnvVariables() {
@@ -219,18 +194,18 @@ void limitResources() {
 }
 
 void joinNetworkNamespace() {
-	char *path = concat(2, DIR_NETNS, ntw_config->netns);
+	char *path = concat(2, DIR_NETNS, NETNS);
 	int nsfd = open(path, O_RDONLY | O_CLOEXEC);	// use O_CLOEXEC flag to prevent any child/exec processes from inheriting this fd. since namespace is always inherited.
 	if(nsfd < 0) {
-		printf("Error opening netns: %s\n", ntw_config->netns);
+		printf("Error opening netns: %s\n", NETNS);
 		exit(1);
 	} 
 	int flag = setns(nsfd, CLONE_NEWNET);	// join network namespace referred by nsfd.
 	if(flag < 0) {
-		printf("Error joining netns: %s\n", ntw_config->netns);
+		printf("Error joining netns: %s\n", NETNS);
 		exit(1);
 	}
-	printf("netns: %s joined by init process with PID: %d\n", ntw_config->netns, getpid());
+	printf("netns: %s joined by init process with PID: %d\n", NETNS, getpid());
 	return;
 }
 
@@ -265,7 +240,7 @@ void main(int argc, char const *argv[]) {	// since clone is done then name of th
 	ROOTFS = argv[1];
 	HOSTNAME = argv[2];
 	CONTNR_ID = argv[3];
-	networkConfig();
+	NETNS = concat(2, "netns-", CONTNR_ID);
 
 	printf("rootfs is: %s, HOSTNAME is: %s\n", ROOTFS, HOSTNAME);
 

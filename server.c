@@ -53,10 +53,10 @@ void *echo(void *thread_no) {
 			len = read(sock_fd, buff, sizeof(buff));
 			if(len == 0) { // event occured but client didn't query means client disconnected.
 				close(sock_fd);
-				printf("socket fd: %d closed of thread no: %d\n", sock_fd, thread_idx);
+				// printf("socket fd: %d closed of thread no: %d\n", sock_fd, thread_idx);
 				continue;
 			}
-			printf("Client fd %d: %s",sock_fd, buff);
+			// printf("Client fd %d: %s",sock_fd, buff);
 			write(sock_fd, buff, sizeof(buff));
 		}
 	}
@@ -94,7 +94,7 @@ int create_lstn_sock_fd() {
 	if(lstn_sock_fd == -1) {
 		printf("listening socket creation failed\n");
 		exit(0);
-	} else printf("listening socket created\n");
+	}// else printf("listening socket created\n");
 
 	lstn_socket.sin_family = AF_INET;
 	lstn_socket.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -104,13 +104,13 @@ int create_lstn_sock_fd() {
 	if(flag == -1) {
 		printf("Bind failed\n");
 		exit(0);
-	} else printf("Bind successful\n");
+	}// else printf("Bind successful\n");
 
 	flag = listen(lstn_sock_fd, 5);
 	if(flag == -1) {
 		printf("Error listening on socket\n");
 		exit(0);
-	} else printf("listening...\n");
+	}// else printf("listening...\n");
 	return lstn_sock_fd;
 }
 
@@ -130,7 +130,7 @@ int main() {
 			printf("Error accepting: error:%d\n", clnt_sock_fd);
 			//exit(0);
 			continue;
-		} else printf("connection accepted\n");
+		}// else printf("connection accepted\n");
 
 		// for EPOLLET events it is advisable to use non-blocking operations on fd eg. read/write on socket.
 		make_non_block_socket(clnt_sock_fd);
@@ -139,7 +139,7 @@ int main() {
 		interested_event.data.fd = clnt_sock_fd; // adding the socket fd
 		interested_event.events = EPOLLIN | EPOLLET; // adding the event type for this socket fd.
 		epoll_ctl(epolls[turn].epoll_fd, EPOLL_CTL_ADD, clnt_sock_fd, &interested_event); // adding the socket to epoll instance.
-		printf("socket fd:%d added to thread no: %d\n", clnt_sock_fd, turn);
+		//printf("socket fd:%d added to thread no: %d\n", clnt_sock_fd, turn);
 		turn = (turn + 1) % n_threads;
 	}
 	close(lstn_sock_fd);
