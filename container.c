@@ -15,6 +15,7 @@
 #define DIR_CGROUP_PIDS "/sys/fs/cgroup/pids/"
 #define DIR_CGROUP_MEMORY "/sys/fs/cgroup/memory/"
 #define DIR_CGROUP_CPU "/sys/fs/cgroup/cpu/"
+#define DIR_NETNS "/var/run/netns/"
 
 #define PATH_SHELL "/bin/sh"
 #define PATH_BASH "/bin/bash"
@@ -217,13 +218,28 @@ void limitResources() {
 	return;
 }
 
+void joinNetworkNamespace() {
+	char *path = concat(2, DIR_NETNS, ntw_config->netns);
+	int nsfd = open(path, O_RDONLY | O_CLOEXEC);	// use O_CLOEXEC flag to prevent any child/exec processes from inheriting this fd. since namespace is always inherited.
+	if(nsfd < 0) {
+		printf("Error opening netns: %s\n", ntw_config->netns);
+		exit(1);
+	} 
+	int flag = setns(nsfd, CLONE_NEWNET);	// join network namespace referred by nsfd.
+	if(flag < 0) {
+		printf("Error joining netns: %s\n", ntw_config->netns);
+		exit(1);
+	}
+	printf("netns: %s joined by init process with PID: %d\n", ntw_config->netns, getpid());
+	return;
+}
+
 int init(void *args) {
-	printf("From init Child pid: %d\n", getpid());
+	printf("Container init pid: %d\n", getpid());
 
 	// create cgroup for this init process in host rootfs not container rootfs.
-
 	limitResources();
-
+	joinNetworkNamespace();
 
 	initEnvVariables();
 	setupRootfs();
@@ -236,11 +252,12 @@ int init(void *args) {
 	wait(&status);
 	
 	umount("/proc");
-	printf("Leaving init child status: %d\n", status);
+	printf("Leaving init with bash status: %d\n", status);
 	return 0;
 }
 
 void main(int argc, char const *argv[]) {	// since clone is done then name of this process and name of cloned init() process both are ./container.
+	printf("Hello Container parent pid: %d\n", getpid());
 	if(argc < 2) {
 		printf("Invalid args, rootfs and HOSTNAMEs required\n");
 		exit(1);
@@ -252,13 +269,11 @@ void main(int argc, char const *argv[]) {	// since clone is done then name of th
 
 	printf("rootfs is: %s, HOSTNAME is: %s\n", ROOTFS, HOSTNAME);
 
-	printf("Hello Container parent pid: %d\n", getpid());
-	
-	clone(init, stackMemory(), CLONE_NEWNET|CLONE_NEWPID|CLONE_NEWUTS|SIGCHLD, NULL); // SIGCHLD this flag tells the process to emit a signal when finished. NULL is args to init.
+	clone(init, stackMemory(), CLONE_NEWPID|CLONE_NEWUTS|SIGCHLD, NULL); // SIGCHLD this flag tells the process to emit a signal when finished. NULL is args to init.
 	
 	int status;
 	wait(&status);	// parent need to wait otherwise child process will be adopted.
 
-	printf("Leaving main with init status: %d\n", status);
+	printf("Leaving main with container init status: %d\n", status);
 	return;
 }

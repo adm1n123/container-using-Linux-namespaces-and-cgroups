@@ -1,0 +1,87 @@
+Asn 3 notes
+
+Create Named netword namespaces for both containers(because default is unnamed so not possible to perform ops since name is required)
+
+	$ sudo ip netns add netns-contnr1
+	$ sudo ip netns add netns-contnr2
+	$ sudo ip netns list	# see all named network namespaces.
+	
+	$ cd /var/run/netns	# this directory has netns files(these are temporary mount --bind to some path to keep namespace alive) open these files get fd and use setns(fd, CLONE_NEWNET) to associate 
+	calling process to new network name space.
+	or from host process get process id of child(container process) then cd /proc/[pid]/ns and find the netns of child, now set the veth to this name space from host process.
+	
+	$ cd /proc/self/ns	# see the name spaces of current process (if you are in shell this is for shell process, for C program its for C process). 
+
+
+Create bridge in host(so that all the containers could be connected to bridge) and connected host to bridge. (you can also create veth pair and connect any two (container-container) or (container-host)) but
+how many pair you need if you want to connect n-1 containers and 1 host. total nC2 hence create bridge and connect every container to bridge and connect host to bridge. because this bridge is virtual
+and it has interface so host is not aware of this interface unless you connect host to it. it is just like any physical cable if you dont connect host it cannot communicate with containers in that virtual
+network. (it is like interface for host and swithc(bridge) for namespaces(containers))
+
+	$ sudo ip link add v-net-contnr type bridge
+	$ sudo ip link	# see the all interfaces.
+
+Up the virtual netword(bridge) it is down. (if you up then it is enabled when pc bootsup it is down initially).
+	$ sudo ip link set dev v-net-contnr up
+
+
+Create veth pair for each container
+	$ sudo ip link add veth-contnr1 type veth peer name veth-contnr1-br		# for container1  veth-contnr1 is connected to container and veth-contnr1-br is connected to bridge.
+	$ sudo ip link add veth-contnr2 type veth peer name veth-contnr2-br		# for container2
+	$ sudo ip link	# see all interfaces.
+
+
+connect the veth cable between container and bridge
+	$ sudo ip link set veth-contnr1 netns netns-contnr1
+	$ sudo ip link set veth-contnr1-br master v-net-contnr
+
+	$ sudo ip link set veth-contnr2 netns netns-contnr2
+	$ sudo ip link set veth-contnr2-br master v-net-contnr
+
+
+Assign IP address to containers veth (NOTE: since netns keyword is used so shorthand 'ip -n exec' might not work since it creates conflicts in parsing)
+	$ sudo ip netns exec netns-contnr1 ip addr add 192.168.55.1/24 dev veth-contnr1
+	$ sudo ip netns exec netns-contnr2 ip addr add 192.168.55.2/24 dev veth-contnr2
+	$ sudo ip netns exec netns-contnr2 ip address show	# see the IP address assigned to interface of perticular container.
+
+
+Up the container veth.
+	$ sudo ip netns exec netns-contnr1 ip link set veth-contnr1 up
+	$ sudo ip netns exec netns-contnr2 ip link set veth-contnr2 up
+	$ sudo ip netns exec netns-contnr2 ip address	# see the status it should be state LOWERLAYERDOWN since bridge veth is not up.
+
+
+Assign IP to bridge interface of host.(we need to assign IP to bridge interface so that packet transmitted from host get into bridge network based on routing table at host so assign ip to host with same network 
+address as the containers and change the hostbits so that routing table forwards packet to containers network after seeing same network address in packets(since servers are in containers).
+	$ sudo ip addr add 192.168.55.3/24 brd + dev v-net-contnr	# using brd for setting broadcast so that broadcasting also goes into this.
+	$ sudo ip address show	# see that ip is assigned.
+
+
+See the host kernel routing table packets to ip network 192.168.55.xxx should go through bridge (v-net-contnr)
+	adm1n123@adm1n123-Ubuntu:~$ route
+	Kernel IP routing table
+	Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
+	default         _gateway        0.0.0.0         UG    600    0        0 wlp3s0
+	link-local      0.0.0.0         255.255.0.0     U     1000   0        0 wlp3s0
+	192.168.1.0     0.0.0.0         255.255.255.0   U     600    0        0 wlp3s0
+	192.168.55.0    0.0.0.0         255.255.255.0   U     0      0        0 v-net-contnr	<<<<<<<<
+	192.168.100.0   0.0.0.0         255.255.255.0   U     0      0        0 virbr1
+	192.168.122.0   0.0.0.0         255.255.255.0   U     0      0        0 virbr0
+
+
+up the bridge veth.
+	$ sudo ip link set veth-contnr2-br up
+	$ sudo ip link set veth-contnr1-br up
+
+ping containers from it should be reachable.
+	$ ping 192.168.55.1
+	$ ping 192.168.55.2
+	
+See IP from container shell
+	$ ip address
+Or see IP of container namespace from host
+	$ sudo ip netns exec netns-contnr1 ip address
+	
+	
+	
+	
