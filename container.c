@@ -242,9 +242,9 @@ void main(int argc, char const *argv[]) {	// since clone is done then name of th
 	CONTNR_ID = argv[3];
 	NETNS = concat(2, "netns-", CONTNR_ID);
 
-	printf("rootfs is: %s, HOSTNAME is: %s\n", ROOTFS, HOSTNAME);
+	printf("ROOTFS is: %s, HOSTNAME is: %s, NETNS is: %s\n", ROOTFS, HOSTNAME, NETNS);
 
-	clone(init, stackMemory(), CLONE_NEWPID|CLONE_NEWUTS|SIGCHLD, NULL); // SIGCHLD this flag tells the process to emit a signal when finished. NULL is args to init.
+	clone(init, stackMemory(), CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWUTS|SIGCHLD, NULL); // SIGCHLD this flag tells the process to emit a signal when finished. NULL is args to init.
 	
 	int status;
 	wait(&status);	// parent need to wait otherwise child process will be adopted.
