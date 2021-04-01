@@ -1,6 +1,7 @@
 #define _GNU_SOURCE	// then only clone() is defined in sched.h
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -11,9 +12,9 @@
 #include <sys/wait.h>
 
 // create difference cgroup for separate container when running two containers.
-#define DIR_CGROUP_PIDS "/sys/fs/cgroup/pids/container/"
-#define DIR_CGROUP_MEMORY "/sys/fs/cgroup/memory/container/"
-#define DIR_CGROUP_CPU "/sys/fs/cgroup/cpu/container/"
+#define DIR_CGROUP_PIDS "/sys/fs/cgroup/pids/"
+#define DIR_CGROUP_MEMORY "/sys/fs/cgroup/memory/"
+#define DIR_CGROUP_CPU "/sys/fs/cgroup/cpu/"
 
 #define PATH_SHELL "/bin/sh"
 #define PATH_BASH "/bin/bash"
@@ -25,12 +26,42 @@
 #define STR_SWAPPINESS "memory.swappiness"
 #define STR_NOTI_ON_REL "notify_on_release"
 
-const char *rootfs;
-const char *hostname;
+const char *CONTNR_ID;	// container id
+const char *ROOTFS;
+const char *HOSTNAME;
 const int MAX_PID = 10;	// maximum number of processes in container.
 const int PATH_LENGTH = 100;
 const long long int MEM_LIMIT = (long long int)10 << 20; // 128MB
 const long long int STACK_SIZE = (long long int)1 << 20; // 1MB
+
+char *concat(int argc, ...);
+
+struct veth_pair {
+	char *contnr;	// container end of vethernet
+	char *br;		// bridge end of vethernet
+};
+
+struct ntw_config {
+	char *netns;	// netword namespace name.
+	struct veth_pair *veth;
+	char *ip;		// ip address
+	char *bridge;	// bridge name
+} *ntw_config;
+
+
+void networkConfig() {
+	ntw_config = malloc(sizeof(struct ntw_config));
+	ntw_config->veth = malloc(sizeof(struct veth_pair));
+
+	ntw_config->netns = concat(2, "netns-", CONTNR_ID);
+	ntw_config->veth->contnr = concat(2, "veth-", CONTNR_ID);
+	ntw_config->veth->br = concat(3, "veth-", CONTNR_ID, "-br");
+	ntw_config->ip = "";
+	ntw_config->bridge = "v-net-contnr";
+
+	return;
+}
+
 
 void initEnvVariables() {
   clearenv();	// clear environment variables for process it takes env from parent.
@@ -39,10 +70,19 @@ void initEnvVariables() {
   return;
 }
 
-char *concat(char *a, char *b) {
+char *concat(int argc, ...) {
+	va_list args;
+	va_start(args, argc);
+
 	char *p = malloc(PATH_LENGTH);
-	strcpy(p, a);
-	strcat(p, b);
+	char *arg = va_arg(args, char *);
+	strcpy(p, arg);
+
+	for(int i = 2; i <= argc; i++) {
+		arg = va_arg(args, char *);
+		strcat(p, arg);
+	}
+	va_end(args);
 	return p;
 }
 
@@ -59,14 +99,14 @@ char *longToString(long long int n) {
 }
 
 void setupRootfs() {
-	char *rootfs_path = concat("./", (char *)rootfs);
-	chroot(rootfs_path);
+	char *path = concat(2, "./", (char *)ROOTFS);
+	chroot(path);
 	chdir("/");
 	return;
 }
 
 void setHostname() {
-	sethostname(hostname, strlen(hostname));
+	sethostname(HOSTNAME, strlen(HOSTNAME));
 	return;
 }
 
@@ -82,32 +122,32 @@ int writeOnFile(char *path, char *data) {
 }
 
 void createJoinPidsCgroup() {
-	mkdir(DIR_CGROUP_PIDS, S_IRWXU | S_IRWXO);
+	char *dir = concat(3, DIR_CGROUP_PIDS, CONTNR_ID, "/");
+	mkdir(dir, S_IRWXU | S_IRWXO);
 	char *pid = intToString(getpid());
-
-	char *path = concat(DIR_CGROUP_PIDS, STR_CGROUP_PROCS);
+	char *path = concat(4, DIR_CGROUP_PIDS, CONTNR_ID, "/", STR_CGROUP_PROCS);
 	writeOnFile(path, pid);
 	return;
 }
 
 void limitPids(int max) {
-	
 	char *max_pid = intToString(max);
-	char *path = concat(DIR_CGROUP_PIDS, STR_PIDS_MAX);
+	char *path = concat(4, DIR_CGROUP_PIDS, CONTNR_ID, "/", STR_PIDS_MAX);
 	writeOnFile(path, max_pid);
 	return;
 }
 
 void notifyOnRelease(char *dir_cgroup) {	// after process ended kernel will clean up for space.
-	char *path = concat(dir_cgroup, STR_NOTI_ON_REL);
+	char *path = concat(4, dir_cgroup, CONTNR_ID, "/", STR_NOTI_ON_REL);
 	writeOnFile(path, "1");
 	return;
 }
 
 void createJoinMemoryCgroup() {
-	mkdir(DIR_CGROUP_MEMORY, S_IRWXU | S_IRWXO);
+	char *dir = concat(3, DIR_CGROUP_MEMORY, CONTNR_ID, "/");
+	mkdir(dir, S_IRWXU | S_IRWXO);
 	char *pid = intToString(getpid());
-	char *path = concat(DIR_CGROUP_MEMORY, STR_MEMORY_TASKS);
+	char *path = concat(4, DIR_CGROUP_MEMORY, CONTNR_ID, "/", STR_MEMORY_TASKS);
 
 	int flag = writeOnFile(path, pid);
 	if(flag < strlen(pid)) {
@@ -119,7 +159,7 @@ void createJoinMemoryCgroup() {
 void limitMemory(long long int bytes) {
 	
 	char *mem_bytes = longToString(bytes);
-	char *path = concat(DIR_CGROUP_MEMORY, STR_MEMORY_LIMIT);
+	char *path = concat(4, DIR_CGROUP_MEMORY, CONTNR_ID, "/", STR_MEMORY_LIMIT);
 	
 	int flag = writeOnFile(path, mem_bytes);
 	if(flag < strlen(mem_bytes)) {
@@ -129,7 +169,7 @@ void limitMemory(long long int bytes) {
 }
 
 void disableSwapping() {
-	char *path = concat(DIR_CGROUP_MEMORY, STR_SWAPPINESS);
+	char *path = concat(4, DIR_CGROUP_MEMORY, CONTNR_ID, "/", STR_SWAPPINESS);
 	int flag = writeOnFile(path, "0");	// default is 60 it is tendency of kernel to swap lower value decreases the tendency 0 means very low but kernel might swap.
 	return;
 }
@@ -191,7 +231,7 @@ int init(void *args) {
 
 	mount("proc", "/proc", "proc", 0, 0);	// mounting proc file system.
 
-	clone(runShell, stackMemory(), SIGCHLD, NULL);
+	clone(runBash, stackMemory(), SIGCHLD, NULL);
 	int status;
 	wait(&status);
 	
@@ -202,16 +242,19 @@ int init(void *args) {
 
 void main(int argc, char const *argv[]) {	// since clone is done then name of this process and name of cloned init() process both are ./container.
 	if(argc < 2) {
-		printf("Invalid args, rootfs and hostnames required\n");
+		printf("Invalid args, rootfs and HOSTNAMEs required\n");
 		exit(1);
 	}
-	rootfs = argv[1];
-	hostname = argv[2];
-	printf("rootfs is: %s, hostname is: %s\n", rootfs, hostname);
+	ROOTFS = argv[1];
+	HOSTNAME = argv[2];
+	CONTNR_ID = argv[3];
+	networkConfig();
+
+	printf("rootfs is: %s, HOSTNAME is: %s\n", ROOTFS, HOSTNAME);
 
 	printf("Hello Container parent pid: %d\n", getpid());
 	
-	clone(init, stackMemory(), CLONE_NEWPID|CLONE_NEWUTS|SIGCHLD, NULL); // SIGCHLD this flag tells the process to emit a signal when finished. NULL is args to init.
+	clone(init, stackMemory(), CLONE_NEWNET|CLONE_NEWPID|CLONE_NEWUTS|SIGCHLD, NULL); // SIGCHLD this flag tells the process to emit a signal when finished. NULL is args to init.
 	
 	int status;
 	wait(&status);	// parent need to wait otherwise child process will be adopted.

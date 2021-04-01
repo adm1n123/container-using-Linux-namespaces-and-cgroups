@@ -1,2 +1,2 @@
 #!/bin/bash
-sudo ./container rootfs adm1n-container
+sudo ./container rootfs adm1n-container contnr1
