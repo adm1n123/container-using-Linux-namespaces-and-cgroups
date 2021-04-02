@@ -33,7 +33,7 @@ const char *ROOTFS;
 const char *HOSTNAME;
 const int MAX_PID = 10;	// maximum number of processes in container.
 const int PATH_LENGTH = 100;
-const long long int MEM_LIMIT = (long long int)10 << 20; // 128MB
+const long long int MEM_LIMIT = (long long int)10 << 20; // 10MB
 const long long int STACK_SIZE = (long long int)1 << 20; // 1MB
 
 char *concat(int argc, ...);
@@ -170,7 +170,8 @@ int runBash() {
 	return execvp(PATH_BASH, args);	// change to bash it will replace parent bash you need to do exit two times to exit from child bash and your initial bash.
 }
 
-int run(char *path) {
+int run() {
+	char *path = "/usr/bin/bash";
 	char *args[] = {path, NULL}; // {} is used to create array
 	return execvp(path, args);
 }
@@ -209,6 +210,29 @@ void joinNetworkNamespace() {
 	return;
 }
 
+void mountFS() {
+	// if(mount("/", "/", NULL, MS_PRIVATE, NULL) < 0) {
+	// 	printf("Error making root private mount\n");
+	// 	exit(1);
+	// }
+	mkdir("/mnt/mounted_bin", S_IRWXU | S_IRWXO);
+	if(mount("/bin", "/mnt/mounted_bin", NULL, MS_BIND, NULL) < 0) {
+		printf("Mounting bin in home failed\n");
+	}
+
+	if(mount("proc", "/proc", "proc", 0, NULL) < 0) {	// mounting proc file system.
+		printf("Mounting proc failed\n");
+		exit(1);
+	}
+
+	return;
+}
+void umountFS() {
+	umount("/proc");
+	umount("/mnt/mounted_bin");
+	return;
+}
+
 int init(void *args) {
 	printf("Container init pid: %d\n", getpid());
 
@@ -220,13 +244,13 @@ int init(void *args) {
 	setupRootfs();
 	setHostname();
 
-	mount("proc", "/proc", "proc", 0, 0);	// mounting proc file system.
-
+	mountFS();
+	
 	clone(runBash, stackMemory(), SIGCHLD, NULL);
 	int status;
 	wait(&status);
 	
-	umount("/proc");
+	umountFS();
 	printf("Leaving init with bash status: %d\n", status);
 	return 0;
 }

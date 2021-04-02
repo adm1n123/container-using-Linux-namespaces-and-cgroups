@@ -82,6 +82,10 @@ See IP from container shell
 Or see IP of container namespace from host
 	$ sudo ip netns exec netns-contnr1 ip address
 	
-	
+Chnage the privilege of ping in container
+	/# chmod 777 /bin/ping
+	# now ping from container shell to host or other container.
+
+
 	
 	
