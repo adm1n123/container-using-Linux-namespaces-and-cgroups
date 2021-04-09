@@ -31,7 +31,14 @@ void query(int server_fd) {
 
 void main() {
 	struct sockaddr_in server_address;
-
+	char IP[20];
+	printf("Enter server IP: ");
+	scanf("%s", IP);
+	if(strlen(IP) < 1) {
+		strcpy(IP, "192.168.55.1");
+		printf("Connecting to default IP: %s\n", IP);
+	}
+	
 	int sock_fd, flag;
 	sock_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if(sock_fd == -1) {
@@ -41,7 +48,7 @@ void main() {
 
 	server_address.sin_family = AF_INET;
 	// IP of server pc to connect with. INADDR_LOOPBACK is 127.0.0.1 i.e. localhost you can specify IP
-	server_address.sin_addr.s_addr = inet_addr("192.168.55.1");
+	server_address.sin_addr.s_addr = inet_addr(IP);
 	// port of server process on server pc.
 	server_address.sin_port = htons(8080);
 

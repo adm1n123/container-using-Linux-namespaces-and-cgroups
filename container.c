@@ -37,7 +37,7 @@ const long long int MEM_LIMIT = (long long int)10 << 20; // 10MB
 const long long int STACK_SIZE = (long long int)1 << 20; // 1MB
 
 char *concat(int argc, ...);
-
+void networkConfig();
 
 void initEnvVariables() {
   clearenv();	// clear environment variables for process it takes env from parent.
@@ -261,6 +261,8 @@ void main(int argc, char const *argv[]) {	// since clone is done then name of th
 		printf("Invalid args, rootfs and HOSTNAMEs required\n");
 		exit(1);
 	}
+	networkConfig();
+
 	ROOTFS = argv[1];
 	HOSTNAME = argv[2];
 	CONTNR_ID = argv[3];
@@ -274,5 +276,45 @@ void main(int argc, char const *argv[]) {	// since clone is done then name of th
 	wait(&status);	// parent need to wait otherwise child process will be adopted.
 
 	printf("Leaving main with container init status: %d\n", status);
+	return;
+}
+
+
+void networkConfig() {
+	// creating network namespaces
+	system("sudo ip netns add netns-contnr1");
+	system("sudo ip netns add netns-contnr2");
+
+	// creating bridge in default network NS
+	system("sudo ip link add v-net-contnr type bridge");
+
+	// creating two veth cable to connect both network NS to bridge.
+	system("sudo ip link add veth-contnr1 type veth peer name veth-contnr1-br");
+	system("sudo ip link add veth-contnr2 type veth peer name veth-contnr2-br");
+	
+	// connecting veth between first network NS and bridge
+	system("sudo ip link set veth-contnr1 netns netns-contnr1");
+	system("sudo ip link set veth-contnr1-br master v-net-contnr");
+	// connecting veth between second network NS and bridge
+	system("sudo ip link set veth-contnr2 netns netns-contnr2");
+	system("sudo ip link set veth-contnr2-br master v-net-contnr");
+
+	// enabling the veth interface on both network NS
+	system("sudo ip netns exec netns-contnr1 ip link set veth-contnr1 up");
+	system("sudo ip netns exec netns-contnr2 ip link set veth-contnr2 up");
+
+	// starting the router.
+	system("sudo ip link set dev v-net-contnr up");
+
+	// enabling the veth interface on bridge
+	system("sudo ip link set veth-contnr2-br up");
+	system("sudo ip link set veth-contnr1-br up");
+
+	// assigning IP address to interface of both network NS
+	system("sudo ip netns exec netns-contnr1 ip addr add 192.168.55.1/24 dev veth-contnr1");
+	system("sudo ip netns exec netns-contnr2 ip addr add 192.168.55.2/24 dev veth-contnr2");
+	// assigning IP address to router interface in default NS.
+	system("sudo ip addr add 192.168.55.3/24 brd + dev v-net-contnr");
+
 	return;
 }
