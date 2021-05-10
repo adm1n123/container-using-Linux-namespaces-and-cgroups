@@ -21,7 +21,7 @@ $ make container
 
 
 ### run container args(root file system, hostname, container id)
-$ ./container rootfs my-container1 contnr1
+$ ./container rootfs1 my-container1 contnr1
 
 
 ### start server process from container shell
@@ -35,5 +35,5 @@ $ ./client
 ### create another container 
 #### only change server IP in client.c, use different hostname, and container id: contnr2
 $ make client
-$ ./container rootfs my-container2 contnr2
+$ ./container rootfs2 my-container2 contnr2
 
