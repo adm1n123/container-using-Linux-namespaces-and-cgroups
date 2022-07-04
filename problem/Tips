@@ -1,0 +1,10 @@
+Tips:
+	compile client.c server.c before placing in rootfs since lpthread may not support.
+
+	
+
+command to find out the ip and port of server 
+it list the client and address to which client is connected to so we can see the server address.
+this commnad only work for processes in default namespace.
+
+netstat -anp | grep client
